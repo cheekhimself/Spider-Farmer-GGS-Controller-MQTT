@@ -255,3 +255,10 @@ This is a **private research and hobby project**.
 This project demonstrates that **modern IoT devices often rely on simple, local BLE protocols**, even when cloud services are marketed as mandatory.
 The ESP32 bridge provides a **clean, deterministic, and auditable integration path** into professional smart-home environments.
 Happy hacking 🌱 cr0'
+
+---
+
+## Verdant Integration
+For a migration-ready Verdant integration package (inventory, boundary contract, config model, tests, rollout), see:
+
+- `VERDANT_INTEGRATION.md`

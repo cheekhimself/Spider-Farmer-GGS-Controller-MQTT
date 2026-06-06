@@ -7,17 +7,41 @@
 #include <BLE2902.h> 
 
 // --- KONFIGURATION ---
-const char* ssid = "WIFI NAME";          // <--- HIER WLAN NAME
-const char* password = "WIFI PASS";  // <--- HIER WLAN PASSWORT
+#ifndef WIFI_SSID
+#define WIFI_SSID ""
+#endif
+#ifndef WIFI_PASSWORD
+#define WIFI_PASSWORD ""
+#endif
+#ifndef MQTT_SERVER
+#define MQTT_SERVER ""
+#endif
+#ifndef MQTT_PORT
+#define MQTT_PORT 1883
+#endif
+#ifndef MQTT_USER
+#define MQTT_USER ""
+#endif
+#ifndef MQTT_PASS
+#define MQTT_PASS ""
+#endif
+#ifndef MQTT_TOPIC_PREFIX
+#define MQTT_TOPIC_PREFIX "grow/GGS"
+#endif
+#ifndef GGS_BLE_ADDRESS
+#define GGS_BLE_ADDRESS "78:5e:1a:6b:56:2a"
+#endif
 
-const char* mqtt_server = "192.168.x.x";
-const int mqtt_port = 1883;
+const char* ssid = WIFI_SSID;
+const char* password = WIFI_PASSWORD;
 
-// HIER DEINE MQTT ZUGANGSDATEN EINTRAGEN:
-const char* mqtt_user = "MQTT USER";     // <--- HIER USERNAME (z.B. mqtt-user)
-const char* mqtt_pass = "MQTT PASS"; // <--- HIER PASSWORT (z.B. secret123)
+const char* mqtt_server = MQTT_SERVER;
+const int mqtt_port = MQTT_PORT;
 
-String ble_address = "78:5e:1a:6b:56:2a";     // Die MAC deines GGS Controllers
+const char* mqtt_user = MQTT_USER;
+const char* mqtt_pass = MQTT_PASS;
+
+String ble_address = GGS_BLE_ADDRESS;     // Die MAC deines GGS Controllers
 
 // UUID für Notifications
 static BLEUUID charNotifyUUID("0000ff01-0000-1000-8000-00805f9b34fb");
@@ -29,6 +53,11 @@ BLEClient* pClient = NULL;
 BLERemoteCharacteristic* pRemoteCharacteristic;
 bool connected = false;
 String jsonBuffer = "";
+String mqttTopicPrefix = MQTT_TOPIC_PREFIX;
+
+String topicPath(const char* suffix) {
+  return mqttTopicPrefix + "/" + suffix;
+}
 
 // --- HILFSFUNKTION: Robustes Parsen mit Offset ---
 // Diese Funktion ignoriert "Müll-Zeichen" zwischen den Werten
@@ -62,17 +91,18 @@ String extractValueAfter(String json, String parentKey, String targetKey) {
 }
 
 // Hilfsfunktion für MQTT Debugging
-void sendMqtt(const char* topic, String value) {
+void sendMqtt(const char* topicSuffix, String value) {
     if (value == "") return;
+    String topic = topicPath(topicSuffix);
     
-    if (mqttClient.publish(topic, value.c_str())) {
+    if (mqttClient.publish(topic.c_str(), value.c_str())) {
         Serial.print(" [MQTT OK] "); 
     } else {
         Serial.print(" [MQTT ERR state=");
         Serial.print(mqttClient.state()); 
         Serial.print("] ");
     }
-    Serial.print(topic);
+    Serial.print(topic.c_str());
     Serial.print(": ");
     Serial.println(value);
 }
@@ -88,27 +118,27 @@ void processRawData(String rawData) {
   String sHumi = extractValueAfter(rawData, "sensor", "humi");
   String sVpd  = extractValueAfter(rawData, "sensor", "vpd");
 
-  if(sTemp != "") sendMqtt("grow/GGS/sensor/temp", sTemp);
-  if(sHumi != "") sendMqtt("grow/GGS/sensor/humi", sHumi);
-  if(sVpd != "")  sendMqtt("grow/GGS/sensor/vpd", sVpd);
+  if(sTemp != "") sendMqtt("sensor/temp", sTemp);
+  if(sHumi != "") sendMqtt("sensor/humi", sHumi);
+  if(sVpd != "")  sendMqtt("sensor/vpd", sVpd);
 
   // --- LÜFTER (Fan) ---
   String sFanLvl = extractValueAfter(rawData, "fan", "level");
   String sFanOn  = extractValueAfter(rawData, "fan", "on");
 
-  if(sFanLvl != "") sendMqtt("grow/GGS/fan/level", sFanLvl);
-  if(sFanOn != "")  sendMqtt("grow/GGS/fan/on", sFanOn);
+  if(sFanLvl != "") sendMqtt("fan/level", sFanLvl);
+  if(sFanOn != "")  sendMqtt("fan/on", sFanOn);
 
   // --- BLOWER ---
   String sBlowerLvl = extractValueAfter(rawData, "blower", "level");
-  if(sBlowerLvl != "") sendMqtt("grow/GGS/blower/level", sBlowerLvl);
+  if(sBlowerLvl != "") sendMqtt("blower/level", sBlowerLvl);
 
   // --- LICHT (Light) ---
   String sLightLvl = extractValueAfter(rawData, "light", "level");
   String sLightOn  = extractValueAfter(rawData, "light", "on");
   
-  if(sLightLvl != "") sendMqtt("grow/GGS/light/level", sLightLvl);
-  if(sLightOn != "")  sendMqtt("grow/GGS/light/on", sLightOn);
+  if(sLightLvl != "") sendMqtt("light/level", sLightLvl);
+  if(sLightOn != "")  sendMqtt("light/on", sLightOn);
   
   Serial.println("------------------------");
 }
@@ -188,6 +218,10 @@ bool connectToBLE() {
 }
 
 void setupWifi() {
+  if (String(ssid).length() == 0 || String(password).length() == 0) {
+    Serial.println("WLAN Zugangsdaten fehlen (WIFI_SSID/WIFI_PASSWORD).");
+    return;
+  }
   Serial.print("Verbinde WLAN");
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
@@ -196,13 +230,37 @@ void setupWifi() {
 
 void reconnectMqtt() {
   if (!mqttClient.connected()) {
+    if (String(mqtt_server).length() == 0) {
+      Serial.println("MQTT_SERVER fehlt.");
+      delay(2000);
+      return;
+    }
     Serial.print("MQTT Verbinde...");
-    
-    // KORREKTUR: Hier übergeben wir nun User und Passwort!
-    if (mqttClient.connect("ESP32_GGS_Bridge", mqtt_user, mqtt_pass)) {
+    String statusTopic = topicPath("status");
+    bool mqttConnected = false;
+    if (String(mqtt_user).length() == 0) {
+      mqttConnected = mqttClient.connect(
+        "ESP32_GGS_Bridge",
+        statusTopic.c_str(),
+        1,
+        true,
+        "offline"
+      );
+    } else {
+      mqttConnected = mqttClient.connect(
+        "ESP32_GGS_Bridge",
+        mqtt_user,
+        mqtt_pass,
+        statusTopic.c_str(),
+        1,
+        true,
+        "offline"
+      );
+    }
+    if (mqttConnected) {
       
       Serial.println(" OK");
-      mqttClient.publish("grow/GGS/status", "online");
+      mqttClient.publish(statusTopic.c_str(), "online", true);
       
     } else {
       Serial.print(" Fehler rc=");
@@ -218,7 +276,8 @@ void setup() {
   setupWifi();
   mqttClient.setServer(mqtt_server, mqtt_port);
   // Puffer erhöhen für lange Payloads
-  mqttClient.setBufferSize(512); 
+  mqttClient.setBufferSize(512);
+  mqttClient.setKeepAlive(30);
   BLEDevice::init("");
 }
 
