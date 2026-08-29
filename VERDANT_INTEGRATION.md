@@ -1,36 +1,70 @@
-# Verdant Integration Package (Spider Farmer GGS)
+# Verdant Integration Status (Spider Farmer GGS)
 
-## 1) Source components inventoried for migration
-- `/tmp/workspace/cheekhimself/Spider-Farmer-GGS-Controller-MQTT/SpiderFarmer_GGS_BLE_MQTT_Bridge.ino`  
-  Device runtime adapter (ESP32 BLE → MQTT).
-- `/tmp/workspace/cheekhimself/Spider-Farmer-GGS-Controller-MQTT/ggs_ble.py`  
-  BLE command/status utility.
-- `/tmp/workspace/cheekhimself/Spider-Farmer-GGS-Controller-MQTT/ggs_console.py`  
-  Interactive BLE console tool.
-- `/tmp/workspace/cheekhimself/Spider-Farmer-GGS-Controller-MQTT/ggs_ff00_sniffer.py`  
-  BLE notification/sniffer utility.
-- `/tmp/workspace/cheekhimself/Spider-Farmer-GGS-Controller-MQTT/README.md`  
-  Protocol findings, setup guide, topic structure.
+## Current status
 
-## 2) Verdant integration boundary
-- Treat GGS as an **optional hardware connector module** (feature-flagged).
-- Runtime model is **device-side bridge + app-side ingestion**:
-  - ESP32 bridge publishes MQTT telemetry from BLE.
-  - Verdant consumes canonical MQTT topics and maps to domain entities.
-- Canonical topic contract remains `grow/GGS/*` by default, with configurable prefix.
+This repository is a research prototype and migration aid. It is not a complete
+or production-ready Verdant hardware connector.
 
-## 3) Split deliverables
-- Device deliverable:
-  - ESP32 firmware remains the adapter.
-  - Includes reconnect logic and bridge lifecycle status topic.
-- Verdant deliverable:
-  - Python module in `verdant_integration/` provides config validation, topic mapping, and parser utilities suitable for ingestion pipelines.
+Implemented today:
 
-## 4) Configuration normalization
-Environment-based app config implemented in:
-- `/tmp/workspace/cheekhimself/Spider-Farmer-GGS-Controller-MQTT/verdant_integration/config.py`
+- ESP32 BLE-to-MQTT prototype for older observed plaintext payloads.
+- Configurable MQTT topic prefix and retained bridge lifecycle status.
+- Python configuration, scalar-topic mapping, and fragmented JSON helpers.
+- Focused unit tests for those helpers.
 
-Primary keys:
+Not implemented today:
+
+- A strict decoder for the `AA AA 00 03` framed transport.
+- CRC validation, bounded chunk reassembly, or encrypted firmware profiles.
+- Verified compatibility across CB, PS5, PS10, and LC controllers.
+- A production MQTT subscriber or Verdant database/API sink.
+- Atomic observations with required source, capture time, tent mapping,
+  confidence, quality, units, and sanitized raw-payload evidence.
+- Hardware validation against the user's current controller and firmware.
+
+The existing `verdant_integration/ble_stream.py` helper filters byte streams and
+brace-matches JSON. It is suitable only for the historical plaintext fixtures in
+this repository. It must not be used to classify encrypted/current GGS traffic
+as live Verdant telemetry.
+
+See
+[`docs/SPIDER_FARMER_BLE_RESEARCH_AND_INGESTION_PLAN.md`](docs/SPIDER_FARMER_BLE_RESEARCH_AND_INGESTION_PLAN.md)
+for the public GitHub evidence survey, unresolved protocol profiles, capture
+runbook, data contract, tests, and delivery gates.
+
+## Safety boundary
+
+Verdant integration is receive-only in the planned phases:
+
+- Subscribe to the FF01 notification characteristic.
+- Prefer unsolicited status messages.
+- Do not write the FF02 command characteristic.
+- Do not subscribe to or publish command topics.
+- Do not run `ggs_ble.py` or `ggs_console.py` from the Verdant service account;
+  they are manual research utilities and may expose write operations.
+- Treat unknown, malformed, stale, or unverified telemetry as invalid or stale,
+  never healthy or live.
+- Keep observed runtime state separate from configured targets.
+
+Although protocol-level command names appear in research files, this package
+does not claim safe Verdant control support for lights, fans, blowers, heaters,
+humidifiers, dehumidifiers, outlets, or accessories.
+
+## Current files
+
+- `SpiderFarmer_GGS_BLE_MQTT_Bridge.ino`: ESP32 plaintext bridge prototype.
+- `ggs_ble.py`: manual BLE protocol utility.
+- `ggs_console.py`: interactive manual BLE console.
+- `ggs_ff00_sniffer.py`: BLE notification research utility.
+- `verdant_integration/config.py`: prototype environment validation.
+- `verdant_integration/contract.py`: prototype scalar MQTT snapshot mapping.
+- `verdant_integration/ble_stream.py`: prototype noisy/plaintext JSON helper.
+- `tests/`: focused tests for the prototype Python helpers.
+
+## Existing configuration
+
+Prototype Python environment keys:
+
 - `VERDANT_GGS_ENABLED`
 - `VERDANT_GGS_MQTT_HOST`
 - `VERDANT_GGS_MQTT_PORT`
@@ -41,69 +75,49 @@ Primary keys:
 - `VERDANT_GGS_TOPIC_PREFIX`
 - `VERDANT_GGS_BLE_ADDRESS`
 - `VERDANT_GGS_TELEMETRY_STALE_SECONDS`
-- `VERDANT_GGS_COMMAND_RETRIES`
+- `VERDANT_GGS_COMMAND_RETRIES` (legacy prototype setting; not part of the
+  receive-only target architecture)
 
-Validation rules fail fast on startup for missing/invalid combinations.
+Firmware compile-time definitions:
 
-Firmware config was normalized to compile-time definitions instead of hardcoded credentials:
 - `WIFI_SSID`, `WIFI_PASSWORD`
 - `MQTT_SERVER`, `MQTT_PORT`
 - `MQTT_USER`, `MQTT_PASS`
 - `MQTT_TOPIC_PREFIX`
 - `GGS_BLE_ADDRESS`
 
-## 5) Data contract standardization
-Implemented in:
-- `/tmp/workspace/cheekhimself/Spider-Farmer-GGS-Controller-MQTT/verdant_integration/contract.py`
+Do not commit credentials, BLE capture files, controller identifiers, keys, IVs,
+or decrypted raw payloads.
 
-Mapped telemetry:
+## Prototype topic mapping
+
+The current default prefix is `grow/GGS` and the prototype maps:
+
 - `sensor/temp`, `sensor/humi`, `sensor/vpd`
 - `fan/on`, `fan/level`
 - `light/on`, `light/level`
 - `blower/level`
-- `status` (bridge online/offline)
+- `status`
 
-## 6) Reliability behavior
-- Firmware keeps BLE reconnect + MQTT reconnect behavior.
-- MQTT lifecycle signaling now includes retained online/offline state via Last Will on `<prefix>/status`.
-- Parser resilience is implemented for fragmented/noisy BLE JSON streams in:
-  - `/tmp/workspace/cheekhimself/Spider-Farmer-GGS-Controller-MQTT/verdant_integration/ble_stream.py`
+These independent scalar topics do not provide an atomic sensor snapshot. The
+target architecture replaces them at the Verdant boundary with one validated,
+timestamped observation per complete controller message.
 
-## 7) Security and operations hardening
-- Removed source-level credential placeholders in firmware constants by switching to compile-time config definitions.
-- Added TLS config expectations for app-side ingestion through environment validation.
-- Recommended least-privilege MQTT ACL:
-  - Bridge publish: `<prefix>/status`, `<prefix>/sensor/#`, `<prefix>/fan/#`, `<prefix>/light/#`, `<prefix>/blower/#`
-  - Verdant consumer subscribe: same read paths
-  - Command publisher restricted to explicit command topics only (if enabled in target app).
+## Validation
 
-## 8) Capability mapping
-Supported telemetry:
-- temp, humidity, vpd, fan, light, blower, bridge status.
+The current prototype tests can be run from the repository root with:
 
-Supported controls (protocol-level):
-- light/fan/blower methods (`setLight`, `setFan`, `setBlower`).
+```powershell
+python -m unittest discover -s tests -v
+```
 
-Not covered by this package:
-- Features outside observed BLE protocol surface.
+Passing these tests validates only the historical helper behavior. It does not
+prove BLE hardware compatibility, encryption support, MQTT broker integration,
+Verdant ingestion, database policy enforcement, or safe equipment control.
 
-## 9) Integration boundary tests
-Added tests:
-- `/tmp/workspace/cheekhimself/Spider-Farmer-GGS-Controller-MQTT/tests/test_contract.py`
-- `/tmp/workspace/cheekhimself/Spider-Farmer-GGS-Controller-MQTT/tests/test_config.py`
-- `/tmp/workspace/cheekhimself/Spider-Farmer-GGS-Controller-MQTT/tests/test_ble_stream.py`
+## Generated Python cache
 
-These cover topic contract mapping, startup validation, and parser resilience.
-
-## 10) Maintainer documentation
-This file acts as the migration/operations guide with:
-- Imported component inventory
-- Config reference
-- Data contract summary
-- Reliability/security notes
-- Compatibility caveat: vendor firmware changes can alter BLE payloads.
-
-## 11) Rollout approach
-- Keep behind feature flag (`VERDANT_GGS_ENABLED`).
-- Validate against one known controller before broad enablement.
-- Promote only after CI + hardware verification in target repository.
+`__pycache__` directories and `.pyc` files are interpreter-generated bytecode.
+They are not source code, are specific to a Python build/platform, and are
+recreated automatically. They are intentionally ignored and should not be
+committed.
