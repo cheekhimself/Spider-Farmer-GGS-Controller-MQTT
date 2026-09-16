@@ -67,3 +67,6 @@ All of the following, and none of them are satisfied here:
 MQTT / Verdant live mapping stays blocked until plaintext is actually `getDevSta`
 with finite `temp` / `humi` / `vpd` from a proven decrypt — which this phase
 does not perform.
+
+Phase 5 (`docs/PHASE5_CRYPTO_RESEARCH.md`) trials AES modes on these assemblies
+and still refuses `claimed_success` without a matching known-plaintext fixture.
