@@ -1,0 +1,4 @@
+{
+  "name": "Spider Farmer GGS → Verdant",
+  "install": "python3 -m pip install --user 'bleak==3.0.2'"
+}
