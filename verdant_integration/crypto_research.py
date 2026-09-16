@@ -26,6 +26,8 @@ DECRYPT_MISMATCH = "recovered_bytes_do_not_match_known_plaintext"
 DECRYPT_BAD_PADDING = "pkcs7_unpad_failed"
 DECRYPT_BAD_LENGTH = "ciphertext_not_block_aligned"
 DECRYPT_BAD_ARGS = "invalid_key_or_iv_length"
+DECRYPT_MISSING_CRYPTO = "cryptography_package_missing"
+INVALID_HEX = "hex input is not valid."
 AES_BLOCK = 16
 HYPOTHESIS_JSON_CRIB = b'{"method":"getDevSta"'
 PUBLIC_ISSUE4_SAMPLE_HEX = "8faabc89655c37aa48026729ec81a65dc312fc8243"
@@ -71,7 +73,10 @@ def pkcs7_pad(data: bytes) -> bytes:
 
 
 def _aes_decrypt(ciphertext: bytes, *, key: bytes, iv: bytes | None, mode: str) -> bytes:
-    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    try:
+        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    except ImportError as exc:
+        raise ImportError(DECRYPT_MISSING_CRYPTO) from exc
 
     if mode == "cbc":
         if iv is None or len(iv) != AES_BLOCK:
@@ -136,6 +141,8 @@ def trial_decrypt(
 
     try:
         raw = _aes_decrypt(ciphertext, key=key, iv=iv, mode=mode)
+    except ImportError:
+        return _finish(ok=False, claimed=False, reason=DECRYPT_MISSING_CRYPTO)
     except ValueError as exc:
         return _finish(ok=False, claimed=False, reason=str(exc))
 
@@ -239,10 +246,8 @@ def analyze_assemblies(assemblies: Sequence[bytes]) -> dict[str, object]:
                     diffs = [k for k, (x, y) in enumerate(zip(left, right)) if x != y]
                     if diffs and min(diffs) >= len(left) - AES_BLOCK:
                         last_block_only_twins += 1
-        sample_hit = False
-        if group:
-            sample = bytes.fromhex(PUBLIC_ISSUE4_SAMPLE_HEX)
-            sample_hit = group[0].startswith(sample)
+        sample = bytes.fromhex(PUBLIC_ISSUE4_SAMPLE_HEX)
+        sample_hit = bool(group) and all(item.startswith(sample) for item in group)
         classes.append(
             {
                 "total_ciphertext": total,
@@ -260,26 +265,49 @@ def analyze_assemblies(assemblies: Sequence[bytes]) -> dict[str, object]:
             }
         )
 
+    aligned = bool(assemblies) and all(len(item) % AES_BLOCK == 0 for item in assemblies)
+    xor_hit = any(bool(row["repeating_xor_continues_ascii_json"]) for row in classes)
+    ecb_hit = any(int(row["ecb_duplicate_block_kinds_max"]) > 0 for row in classes)
+    cbc_style = any(_cbc_style_from_class(row) for row in classes)
     return {
         "assembly_count": len(assemblies),
         "claimed_decrypt": False,
         "claimed_plaintext": False,
         "classes": classes,
         "hypotheses": {
-            "aes_block_aligned_lengths": all(len(item) % AES_BLOCK == 0 for item in assemblies),
-            "static_repeating_xor": False,
-            "aes_ecb_repeated_blocks": False,
-            "cbc_style_shared_prefix_then_avalanche": True,
+            "aes_block_aligned_lengths": aligned,
+            "static_repeating_xor": xor_hit,
+            "aes_ecb_repeated_blocks": ecb_hit,
+            "cbc_style_shared_prefix_then_avalanche": cbc_style,
         },
     }
 
 
+def _cbc_style_from_class(row: dict[str, object]) -> bool:
+    """True when a class has a shared AES-block prefix then a later 0-equal block."""
+    count = int(row["count"])
+    prefix_blocks = int(row["common_prefix_aes_blocks"])
+    hist = row["first_two_equal_bytes_per_block"]
+    if count < 2 or prefix_blocks < 1 or not isinstance(hist, list) or len(hist) <= prefix_blocks:
+        return False
+    return any(int(equal) == 0 for equal in hist[prefix_blocks:])
+
+
+def parse_optional_hex(text: str) -> bytes | None:
+    """Parse optional hex, or exit like the other CLIs on malformed input."""
+    compact = "".join(text.split())
+    if not compact:
+        return None
+    try:
+        return bytes.fromhex(compact)
+    except ValueError:
+        raise SystemExit(INVALID_HEX) from None
+
+
 def load_operator_key_iv() -> tuple[bytes | None, bytes | None]:
     """Read optional operator hex from the environment. Empty means absent."""
-    key_hex = os.environ.get("SF_GGS_AES_KEY_HEX", "").strip()
-    iv_hex = os.environ.get("SF_GGS_AES_IV_HEX", "").strip()
-    key = bytes.fromhex(key_hex) if key_hex else None
-    iv = bytes.fromhex(iv_hex) if iv_hex else None
+    key = parse_optional_hex(os.environ.get("SF_GGS_AES_KEY_HEX", ""))
+    iv = parse_optional_hex(os.environ.get("SF_GGS_AES_IV_HEX", ""))
     return key, iv
 
 
@@ -307,7 +335,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     results = [item for item in reassemble_dump_frames(frames) if item.ok and item.assembled]
     assemblies = [item.assembled for item in results if item.assembled is not None]
     report = analyze_assemblies(assemblies)
-    known = bytes.fromhex(args.known_plaintext_hex) if args.known_plaintext_hex else None
+    known = parse_optional_hex(args.known_plaintext_hex)
     key, iv = load_operator_key_iv()
     trials: list[dict[str, object]] = []
     claimed_any = False

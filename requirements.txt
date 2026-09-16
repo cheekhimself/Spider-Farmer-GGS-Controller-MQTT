@@ -1,0 +1,3 @@
+# AES trials in verdant_integration.crypto_research (Phase 5).
+# Structural CRC/reassembly analysis does not require this package.
+cryptography>=41.0.0,<45

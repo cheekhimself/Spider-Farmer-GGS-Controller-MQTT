@@ -1,4 +1,5 @@
 import json
+import os
 import unittest
 from io import StringIO
 from pathlib import Path
@@ -11,11 +12,13 @@ from verdant_integration.crypto_research import (
     DECRYPT_NO_PLAINTEXT_FIXTURE,
     DECRYPT_REFUSED,
     HYPOTHESIS_JSON_CRIB,
+    INVALID_HEX,
     PUBLIC_ISSUE4_SAMPLE_HEX,
     analyze_assemblies,
     common_prefix_length,
     crib_keystream,
     main as crypto_main,
+    parse_optional_hex,
     pkcs7_pad,
     repeating_xor,
     trial_decrypt,
@@ -42,7 +45,10 @@ def _live_assemblies() -> list[bytes]:
 
 
 def _aes_encrypt_cbc(plaintext: bytes, key: bytes, iv: bytes) -> bytes:
-    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    try:
+        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    except ImportError as exc:
+        raise unittest.SkipTest("install cryptography from requirements.txt") from exc
 
     padded = pkcs7_pad(plaintext)
     encryptor = Cipher(algorithms.AES(key), modes.CBC(iv)).encryptor()
@@ -82,7 +88,26 @@ class LiveStructureTests(unittest.TestCase):
         self.assertFalse(report["claimed_plaintext"])
         self.assertTrue(report["hypotheses"]["aes_block_aligned_lengths"])
         self.assertFalse(report["hypotheses"]["static_repeating_xor"])
+        self.assertFalse(report["hypotheses"]["aes_ecb_repeated_blocks"])
         self.assertTrue(report["hypotheses"]["cbc_style_shared_prefix_then_avalanche"])
+        by_size = {row["total_ciphertext"]: row for row in report["classes"]}
+        self.assertTrue(by_size[832]["issue4_sample_is_prefix"])
+        self.assertFalse(by_size[608]["issue4_sample_is_prefix"])
+
+    def test_analyze_empty_input_has_no_positive_hypotheses(self) -> None:
+        report = analyze_assemblies([])
+        self.assertEqual(report["assembly_count"], 0)
+        self.assertFalse(report["hypotheses"]["aes_block_aligned_lengths"])
+        self.assertFalse(report["hypotheses"]["static_repeating_xor"])
+        self.assertFalse(report["hypotheses"]["aes_ecb_repeated_blocks"])
+        self.assertFalse(report["hypotheses"]["cbc_style_shared_prefix_then_avalanche"])
+
+    def test_analyze_derives_xor_and_ecb_flags_from_input(self) -> None:
+        repeating = bytes(range(16)) * 4
+        report = analyze_assemblies([repeating])
+        self.assertTrue(report["hypotheses"]["aes_block_aligned_lengths"])
+        self.assertTrue(report["hypotheses"]["aes_ecb_repeated_blocks"])
+        self.assertFalse(report["hypotheses"]["cbc_style_shared_prefix_then_avalanche"])
 
 
 class FailClosedTrialTests(unittest.TestCase):
@@ -144,8 +169,13 @@ class FailClosedTrialTests(unittest.TestCase):
         self.assertFalse(result.claimed_success)
 
     def test_cli_live_dir_refuses_and_keeps_crc_counts(self) -> None:
-        with patch("sys.stdout", new=StringIO()) as stdout:
-            status = crypto_main(["--dir", str(LIVE_DIR)])
+        env = {
+            "SF_GGS_AES_KEY_HEX": "",
+            "SF_GGS_AES_IV_HEX": "",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            with patch("sys.stdout", new=StringIO()) as stdout:
+                status = crypto_main(["--dir", str(LIVE_DIR)])
         payload = json.loads(stdout.getvalue())
         self.assertEqual(status, 0)
         self.assertEqual(payload["assembly_count"], 17)
@@ -155,6 +185,21 @@ class FailClosedTrialTests(unittest.TestCase):
         self.assertEqual(len(payload["trials"]), 17)
         for row in payload["trials"]:
             self.assertFalse(row["claimed_success"])
+
+    def test_cli_rejects_malformed_plaintext_hex(self) -> None:
+        with self.assertRaises(SystemExit) as raised:
+            crypto_main(["--dir", str(LIVE_DIR), "--known-plaintext-hex", "zz"])
+        self.assertEqual(str(raised.exception), INVALID_HEX)
+
+    def test_parse_optional_hex_rejects_malformed_operator_env(self) -> None:
+        self.assertIsNone(parse_optional_hex(""))
+        with self.assertRaises(SystemExit) as raised:
+            parse_optional_hex("abc")
+        self.assertEqual(str(raised.exception), INVALID_HEX)
+        with patch.dict(os.environ, {"SF_GGS_AES_KEY_HEX": "not-hex"}, clear=False):
+            with self.assertRaises(SystemExit) as raised:
+                crypto_main(["--dir", str(LIVE_DIR)])
+            self.assertEqual(str(raised.exception), INVALID_HEX)
 
     def test_source_has_no_vendor_key_literals_or_mqtt(self) -> None:
         source = (ROOT / "verdant_integration" / "crypto_research.py").read_text(

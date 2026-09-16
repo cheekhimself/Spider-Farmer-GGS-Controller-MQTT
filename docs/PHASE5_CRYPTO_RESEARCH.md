@@ -9,14 +9,22 @@ message CRC of tiled chunks, 17 opaque assemblies (11×832, 6×608).
 Operator commands (receive-only analysis):
 
 ```bash
+python3 -m pip install -r requirements.txt
 python3 -m verdant_integration.reassembly --dir tests/fixtures/live_phase3
 python3 -m verdant_integration.crypto_research --dir tests/fixtures/live_phase3
 ```
 
-`claimed_success` stays false unless `trial_decrypt` is given both operator
-key/IV bytes **and** a known-plaintext fixture that equals the recovered
-output. Environment variables `SF_GGS_AES_KEY_HEX` / `SF_GGS_AES_IV_HEX` are
-the only key path; they are unset in this repo.
+`requirements.txt` pins the third-party `cryptography` package used only for
+AES trials (not CPython stdlib). Structural analysis still runs without it;
+key-backed `trial_decrypt` then reports `cryptography_package_missing` and
+keeps `claimed_success=false`.
+
+`claimed_success` stays false unless recovered bytes equal a caller-supplied
+known-plaintext fixture. `trial_decrypt` accepts `key` (and `iv` for CBC/CTR;
+ECB needs no IV) as arguments. The CLI additionally reads optional
+`SF_GGS_AES_KEY_HEX` / `SF_GGS_AES_IV_HEX` from the operator environment;
+those variables are unset in this repo and are never defaulted to invented
+literals. Malformed hex exits with `hex input is not valid.`
 
 ## Proven (do not regress)
 
@@ -47,7 +55,7 @@ block changes. It is not a decrypt.
 | AES-CTR / static keystream | After the 80-byte shared prefix, pairwise XOR of same-size assemblies is high-entropy (~7.2–7.4 bits/byte) with only accidental equal bytes. Similar JSON under a reused keystream would leak structure | **FAIL** for a static keystream |
 | AES-ECB with repeated plaintext blocks | No duplicate 16-byte ciphertext blocks inside any assembly (0/17). Does not rule out ECB if JSON never repeats a 16-byte block | **FAIL** as an ECB detection; ECB still **BLOCKED** without a key |
 | AES-CBC with a **fixed** IV (public APK/HA notes) | Shared 5-block prefix then avalanche; last-block-only twin; lengths multiple of 16. Matches CBC with a constant IV and a stable JSON header. Public write-ups name AES-128-CBC + PKCS7 over **reassembled** chunks with APK literals — **those literals are not in this repo and were not recovered** | Compatible structure **PROVEN**; algorithm+key **BLOCKED** |
-| AES-CBC/ECB/CTR with trivial keys (`00…` / `ff…`) | Stdlib `cryptography` decrypt; PKCS7 invalid; output not JSON | **FAIL** |
+| AES-CBC/ECB/CTR with trivial keys (`00…` / `ff…`) | Python `cryptography` package decrypt; PKCS7 invalid; output not JSON | **FAIL** |
 | AES with invented or guessed APK ASCII keys | Hard stop: not tested, not committed | refused |
 | Header-derived receive IV (16 bytes after offset 6) | Inner header is 20 bytes of layout fields (type, CRCs, lengths). No extra 16-byte IV field. First 16 bytes of the **chunk** are ciphertext, constant per class | **FAIL** as in-header IV |
 | First 16 assembly bytes are a per-message IV | They are identical for all messages of a class, so they cannot be a unique per-packet IV. Treating them as a static in-band IV is equivalent to an APK literal and still needs the key | **BLOCKED** |
@@ -69,8 +77,9 @@ Public sources consulted (no keys copied):
 
 1. Default: no key, no IV → `claimed_success=false`, reason includes
    `unproven_crypto_profile`.
-2. Key/IV accepted only as arguments or `SF_GGS_AES_KEY_HEX` /
-   `SF_GGS_AES_IV_HEX` (operator machine, never git).
+2. Key bytes (and IV for CBC/CTR) are accepted as `trial_decrypt` arguments.
+   The CLI maps `SF_GGS_AES_KEY_HEX` / `SF_GGS_AES_IV_HEX` onto those
+   arguments (operator machine, never git). ECB does not require an IV.
 3. `claimed_success=true` **only** when `known_good_plaintext` is provided and
    equals the PKCS7-unpadded recovery. “Looks like JSON” is not enough.
 4. Unit tests prove the true path with an isolated AES test vector
