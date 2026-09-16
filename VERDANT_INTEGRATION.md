@@ -68,6 +68,9 @@ Mapped telemetry:
 - MQTT lifecycle signaling now includes retained online/offline state via Last Will on `<prefix>/status`.
 - Parser resilience is implemented for fragmented/noisy BLE JSON streams in:
   - `/tmp/workspace/cheekhimself/Spider-Farmer-GGS-Controller-MQTT/verdant_integration/ble_stream.py`
+- Phase 1 fail-closed binary frame detection (magic + length only, no decrypt) lives in:
+  - `verdant_integration/frame_codec.py`
+  Cheek 2026-09-16 pin on SF-GGS-CB: 32/32 FF01 notifications were `AA AA 00 03` framed candidates (sizes 422/246/230). The JSON brace parser is not used for those buffers.
 
 ## 7) Security and operations hardening
 - Removed source-level credential placeholders in firmware constants by switching to compile-time config definitions.
@@ -92,6 +95,7 @@ Added tests:
 - `/tmp/workspace/cheekhimself/Spider-Farmer-GGS-Controller-MQTT/tests/test_contract.py`
 - `/tmp/workspace/cheekhimself/Spider-Farmer-GGS-Controller-MQTT/tests/test_config.py`
 - `/tmp/workspace/cheekhimself/Spider-Farmer-GGS-Controller-MQTT/tests/test_ble_stream.py`
+- `tests/test_frame_codec.py` (AA AA 00 03 length parsing; rejects plaintext/short/garbage)
 
 These cover topic contract mapping, startup validation, and parser resilience.
 

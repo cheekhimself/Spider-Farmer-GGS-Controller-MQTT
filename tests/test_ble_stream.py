@@ -127,6 +127,14 @@ class ReceiveOnlySnifferTests(unittest.TestCase):
         self.assertNotIn("padding", implementation)
         self.assertNotIn("aes", implementation)
 
+    def test_sniffer_prints_framed_header_length_only(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        source = (root / "ggs_ff00_sniffer.py").read_text(encoding="utf-8")
+        self.assertIn("FrameCodec", source)
+        self.assertIn("FRAMED_CANDIDATE", source)
+        self.assertNotIn("decrypt", source.lower())
+        self.assertNotIn("payload=", source)
+
 
 if __name__ == "__main__":
     unittest.main()
