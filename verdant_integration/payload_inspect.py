@@ -178,10 +178,11 @@ def attempt_framed_decrypt(
     data: bytes | bytearray | memoryview | str,
     known_good_plaintext: bytes | None = None,
 ) -> DecryptAttempt:
-    """Refuse AES/CBC decrypt. Keys are not accepted and success is never claimed.
+    """Refuse decrypt on a single FF01 frame.
 
-    A later Phase may decrypt only when a capture-proven profile exists and
-    ``known_good_plaintext`` matches the output. This stub stops before that.
+    Reassembled ciphertext trials live in ``crypto_research.trial_decrypt``.
+    A single chunk is not a complete candidate; this helper still never claims
+    success. Keys are not accepted here.
     """
     parsed = FrameCodec.parse(data)
     if not parsed.ok:
@@ -190,7 +191,7 @@ def attempt_framed_decrypt(
             claimed_success=False,
             reason=parsed.error or DECRYPT_REFUSED,
             known_good_plaintext_provided=known_good_plaintext is not None,
-            profile_note="aes-128-cbc-pkcs7 remains an unverified research note",
+            profile_note="single-frame decrypt is refused; see crypto_research",
         )
     if known_good_plaintext is None:
         reason = f"{DECRYPT_REFUSED}:{DECRYPT_NO_PLAINTEXT_FIXTURE}"
@@ -202,10 +203,10 @@ def attempt_framed_decrypt(
         reason=reason,
         known_good_plaintext_provided=known_good_plaintext is not None,
         profile_note=(
-            "Candidate profile from public notes: AES-128-CBC / PKCS7 over "
-            "reassembled ciphertext, key+IV as vendor-app literals (not in this "
-            "repo; do not commit). IV layout is not visible in Cheek fixtures. "
-            "Pairing-derived session keys were not observed."
+            "Phase 5: live assemblies are AES-block-aligned with a CBC-style "
+            "shared prefix, but no capture-proven key/IV is in this repo. Use "
+            "crypto_research.trial_decrypt; claimed_success requires a matching "
+            "known-plaintext fixture."
         ),
     )
 
