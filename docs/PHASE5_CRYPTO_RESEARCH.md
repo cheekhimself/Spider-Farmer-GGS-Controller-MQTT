@@ -12,7 +12,11 @@ Operator commands (receive-only analysis):
 python3 -m pip install -r requirements.txt
 python3 -m verdant_integration.reassembly --dir tests/fixtures/live_phase3
 python3 -m verdant_integration.crypto_research --dir tests/fixtures/live_phase3
+python3 -m verdant_integration.crypto_research --try-key-file operator_local/candidates.txt --assemblies-from live_phase3
 ```
+
+Phase 6 operator unlock (APK candidate scan + pairing HCI capture, still no
+claimed decrypt) is documented in `docs/PHASE6_UNLOCK_CAPTURE.md`.
 
 `requirements.txt` pins the third-party `cryptography` package used only for
 AES trials (not CPython stdlib). Structural analysis still runs without it;
@@ -92,7 +96,8 @@ Public sources consulted (no keys copied):
 
 1. **APK dump** of the current Spider Farmer app: strings / `SecretKeySpec` /
    Dart `encrypt` literals for BLE (not cloud TLS certs). Trial those bytes
-   via env vars against these 17 assemblies.
+   via env vars or `--try-key-file` against these 17 assemblies. See
+   `docs/PHASE6_UNLOCK_CAPTURE.md`.
 2. **Pairing or write-path capture** (FF02) that shows key agreement. This
    zip is FF01 notifications only.
 3. **Older-firmware plaintext** `getDevSta` from the **same** controller
