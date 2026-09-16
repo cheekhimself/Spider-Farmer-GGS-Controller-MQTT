@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import json
 from collections.abc import Sequence
+from pathlib import Path
 
 try:
     from bleak import BleakClient, BleakScanner
@@ -17,6 +18,13 @@ from verdant_integration.ble_stream import (
     extract_safe_get_dev_status,
 )
 from verdant_integration.frame_codec import FrameCodec
+from verdant_integration.frame_dump import (
+    COMPLETENESS_COMPLETE,
+    COMPLETENESS_PLAINTEXT,
+    CaptureStats,
+    apply_dump,
+    inspect_notification,
+)
 
 DEVICE_NAME = "SF-GGS-CB"
 FF01_NOTIFY_UUID = "0000ff01-0000-1000-8000-00805f9b34fb"
@@ -27,6 +35,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--scan-attempts", type=int, default=3)
     parser.add_argument("--scan-seconds", type=float, default=3.0)
     parser.add_argument("--listen-seconds", type=float, default=30.0)
+    parser.add_argument(
+        "--dump-frames",
+        metavar="DIR",
+        help=(
+            "Write one .hex file per COMPLETE framed notification into DIR. "
+            "TRUNCATED/OVERSIZED/UNKNOWN are never padded or written."
+        ),
+    )
     return parser
 
 
@@ -35,10 +51,19 @@ def _positive(value: int | float, label: str) -> None:
         raise SystemExit(f"{label} must be greater than zero.")
 
 
-async def capture(scan_attempts: int, scan_seconds: float, listen_seconds: float) -> int:
+async def capture(
+    scan_attempts: int,
+    scan_seconds: float,
+    listen_seconds: float,
+    dump_frames: str | None = None,
+) -> int:
     _positive(scan_attempts, "--scan-attempts")
     _positive(scan_seconds, "--scan-seconds")
     _positive(listen_seconds, "--listen-seconds")
+
+    dump_dir = Path(dump_frames) if dump_frames else None
+    if dump_dir is not None:
+        dump_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"[SCAN] Looking for exact BLE name {DEVICE_NAME}; BLE addresses are suppressed.")
     device = None
@@ -57,7 +82,7 @@ async def capture(scan_attempts: int, scan_seconds: float, listen_seconds: float
 
     print(f"[CONNECT] Matched {DEVICE_NAME}; BLE address suppressed.")
     parser = FragmentedJsonStreamParser()
-    notification_count = 0
+    stats = CaptureStats()
     telemetry_count = 0
 
     async with BleakClient(device) as client:
@@ -66,25 +91,33 @@ async def capture(scan_attempts: int, scan_seconds: float, listen_seconds: float
             return 3
 
         def handle_notification(_: object, data: bytearray) -> None:
-            nonlocal notification_count, telemetry_count
-            notification_count += 1
-            framed = FrameCodec.parse(data)
-            if FrameCodec.looks_framed(data):
-                summary = framed.as_summary()
+            nonlocal telemetry_count
+            inspect = inspect_notification(data)
+            dumped = apply_dump(stats, inspect, dump_dir)
+            summary = inspect.as_summary()
+            dumped_note = str(dumped) if dumped is not None else "no"
+
+            if inspect.completeness != COMPLETENESS_PLAINTEXT:
                 classification = (
-                    "FRAMED_CANDIDATE" if framed.ok else f"FRAMED_{framed.error}"
+                    "FRAMED_CANDIDATE"
+                    if inspect.parsed.ok and inspect.completeness == COMPLETENESS_COMPLETE
+                    else f"FRAMED_{inspect.completeness}"
+                    if FrameCodec.looks_framed(data)
+                    else inspect.completeness
                 )
                 print(
-                    f"[FF01] notification={notification_count} bytes={len(data)} "
-                    f"classification={classification} length={summary['length']} "
-                    f"header={summary['header']}"
+                    f"[FF01] notification={stats.notifications} bytes={inspect.observed_bytes} "
+                    f"completeness={inspect.completeness} classification={classification} "
+                    f"length={summary['length']} header={summary['header']} "
+                    f"expected={inspect.expected_bytes} dumped={dumped_note}"
                 )
                 return
+
             messages = parser.feed(data)
             if not messages:
                 print(
-                    f"[FF01] notification={notification_count} bytes={len(data)} "
-                    "classification=NOT_LIVE"
+                    f"[FF01] notification={stats.notifications} bytes={inspect.observed_bytes} "
+                    f"completeness={COMPLETENESS_PLAINTEXT} classification=NOT_LIVE dumped=no"
                 )
                 return
 
@@ -92,13 +125,15 @@ async def capture(scan_attempts: int, scan_seconds: float, listen_seconds: float
                 safe_status = extract_safe_get_dev_status(message)
                 if safe_status is None:
                     print(
-                        f"[FF01] notification={notification_count} "
-                        "classification=PLAINTEXT_JSON_NOT_LIVE"
+                        f"[FF01] notification={stats.notifications} "
+                        f"completeness={COMPLETENESS_PLAINTEXT} "
+                        "classification=PLAINTEXT_JSON_NOT_LIVE dumped=no"
                     )
                     continue
                 telemetry_count += 1
                 print(
-                    "[FF01] classification=PLAINTEXT_GETDEVSTA "
+                    f"[FF01] completeness={COMPLETENESS_PLAINTEXT} "
+                    "classification=PLAINTEXT_GETDEVSTA "
                     + json.dumps(safe_status, separators=(",", ":"), sort_keys=True)
                 )
 
@@ -109,23 +144,37 @@ async def capture(scan_attempts: int, scan_seconds: float, listen_seconds: float
         finally:
             await client.stop_notify(FF01_NOTIFY_UUID)
 
+    counts = stats.as_summary()
+    dump_note = (
+        f" dumped_complete={counts['dumped']} dir={dump_dir}"
+        if dump_dir is not None
+        else " no frame files written"
+    )
     print(
-        f"[STOP] notifications={notification_count} plaintext_getDevSta={telemetry_count}; "
-        "no raw bytes or BLE addresses retained."
+        f"[STOP] notifications={counts['notifications']} "
+        f"COMPLETE={counts['COMPLETE']} TRUNCATED={counts['TRUNCATED']} "
+        f"PLAINTEXT={counts['PLAINTEXT']} UNKNOWN={counts['UNKNOWN']} "
+        f"OVERSIZED={counts['OVERSIZED']} plaintext_getDevSta={telemetry_count};"
+        f"{dump_note}; BLE addresses suppressed."
     )
     return 0
 
 
 async def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    return await capture(args.scan_attempts, args.scan_seconds, args.listen_seconds)
+    return await capture(
+        args.scan_attempts,
+        args.scan_seconds,
+        args.listen_seconds,
+        args.dump_frames,
+    )
 
 
 if __name__ == "__main__":
     try:
         raise SystemExit(asyncio.run(main()))
     except KeyboardInterrupt:
-        print("[STOP] Interrupted; no capture file was written.")
+        print("[STOP] Interrupted; no additional capture files were written.")
     except Exception as exc:
         print(f"[STOP] BLE capture failed ({type(exc).__name__}); details suppressed.")
         raise SystemExit(1) from None
