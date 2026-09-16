@@ -7,14 +7,14 @@ Header layout hypothesis (Cheek, Windows G7, 2026-09-16; 32/32 FRAMED_CANDIDATE)
     4-5     2     declared length, big-endian uint16
     6-end         opaque body (not interpreted)
 
-Observed complete sizes were 422, 246, and 230. After the 6-byte header the
-declared length was 414, 238, and 222 respectively, which matches:
+Observed complete sizes were 422, 390, 246, and 230. After the 6-byte header
+the declared length was 414, 382, 238, and 222 respectively, which matches:
 
     total_size = declared_length + 8
 
 The extra two bytes after the 6-byte header are left inside ``payload`` and
 are not named (CRC/auth remains unproven). Trailing byte families are not
-parsed.
+parsed. Inner-header guesses live in ``payload_inspect`` (hypothesis only).
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from dataclasses import dataclass
 
 MAGIC = b"\xaa\xaa\x00\x03"
 HEADER_SIZE = 6
-# Cheek pin: 0x019E (414) + 8 = 422; 0x00EE (238) + 8 = 246; 0x00DE (222) + 8 = 230.
+# Cheek pin: 0x019E+8=422; 0x017E+8=390; 0x00EE+8=246; 0x00DE+8=230.
 LENGTH_ENVELOPE = 8
 MAX_DECLARED_LENGTH = 2048
 
