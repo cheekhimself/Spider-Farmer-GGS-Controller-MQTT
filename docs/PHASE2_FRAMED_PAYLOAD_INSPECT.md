@@ -111,9 +111,6 @@ accept key bytes.
 
 ## 7. Next gate (capture, then CRC — not MQTT)
 
-Phase 3 is **receive-only COMPLETE frame dumps** (`docs/PHASE3_COMPLETE_FRAME_DUMP.md`),
-not MQTT. Capture **unpadded** full FF01 frames for 422/390/230 (redact MACs).
-Prove trailer CRC on live bytes. Reassemble chunks until `offset+chunk == total`.
-Only then introduce a decrypt path gated on a known-good plaintext fixture.
-MQTT / Verdant live mapping stays blocked until that plaintext is `getDevSta`
-with finite `temp/humi/vpd`.
+Phase 3 dumped live COMPLETE frames; Phase 4 (`docs/PHASE4_CRC_REASSEMBLY.md`)
+proved trailer CRC-16/MODBUS and chunk tiling on those dumps. Decrypt is still
+refused until a known-good plaintext fixture matches a proven key/IV profile.

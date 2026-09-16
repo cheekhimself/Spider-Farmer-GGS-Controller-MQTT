@@ -12,6 +12,7 @@ import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from verdant_integration.crc16 import crc16_modbus
 from verdant_integration.frame_codec import FrameCodec, FrameParseResult
 
 # Public notes describe a 20-byte packet header from offset 0. Unproven as spec.
@@ -81,19 +82,6 @@ def body_stats(body: bytes) -> BodyStats:
     )
 
 
-def _crc16_modbus(data: bytes) -> int:
-    """Public CRC-16/MODBUS (poly 0xA001). Used only as a hypothesis check."""
-    crc = 0xFFFF
-    for byte in data:
-        crc ^= byte
-        for _ in range(8):
-            if crc & 1:
-                crc = (crc >> 1) ^ 0xA001
-            else:
-                crc >>= 1
-    return crc
-
-
 def hypothesized_inner_fields(buffer: bytes) -> dict[str, object] | None:
     """Guess 20-byte inner header fields. Never treat output as proven layout."""
     if len(buffer) < HYPOTHESIZED_INNER_HEADER_SIZE + HYPOTHESIZED_TRAILER_SIZE:
@@ -109,7 +97,7 @@ def hypothesized_inner_fields(buffer: bytes) -> dict[str, object] | None:
     trailer = buffer[covered : covered + HYPOTHESIZED_TRAILER_SIZE] if layout_consistent else b""
     trailer_crc_matches = False
     if layout_consistent and len(trailer) == HYPOTHESIZED_TRAILER_SIZE:
-        expected = _crc16_modbus(buffer[:covered])
+        expected = crc16_modbus(buffer[:covered])
         trailer_crc_matches = expected == int.from_bytes(trailer, "big")
 
     chunk = (
@@ -130,9 +118,9 @@ def hypothesized_inner_fields(buffer: bytes) -> dict[str, object] | None:
         "chunk_prefix_hex": chunk[:PREVIEW_BYTES].hex() if chunk else "",
         "notes": [
             "type 2 is encrypted in public notes; not proven AES on these fixtures",
-            "bytes 8-9 may be whole-ciphertext CRC16/MODBUS, not IV or counter",
+            "bytes 8-9 are CRC-16/MODBUS of assembled chunks on live dumps",
             "IV is not present as a 16-byte field in this hypothesized header",
-            "padded synthetic bodies make trailer CRC fail; that is not a live proof",
+            "live COMPLETE dumps pass trailer CRC-16/MODBUS; padded fixtures must fail",
         ],
     }
 
