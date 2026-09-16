@@ -1,0 +1,15 @@
+# Operator-only material (Phase 6). Never commit APKs, keys, or pairing captures.
+*.apk
+*.aab
+*.apks
+*.xapk
+*.dex
+*.so
+btsnoop_hci.log
+*.pcap
+*.pcapng
+operator_local/
+dumps/
+candidates.txt
+*_candidates.txt
+operator_keys/

@@ -1,5 +1,6 @@
 import json
 import os
+import tempfile
 import unittest
 from io import StringIO
 from pathlib import Path
@@ -156,6 +157,84 @@ class FailClosedTrialTests(unittest.TestCase):
         )
         self.assertFalse(no_plain.claimed_success)
         self.assertIn(DECRYPT_NO_PLAINTEXT_FIXTURE, no_plain.reason)
+
+    def test_try_key_file_synthetic_match_and_live_refuse(self) -> None:
+        from verdant_integration.crypto_research import (
+            KeyIvPair,
+            load_try_key_file,
+            parse_key_iv_line,
+            summarize_trials,
+        )
+
+        ciphertext = _aes_encrypt_cbc(
+            TEST_VECTOR_PLAINTEXT, TEST_VECTOR_KEY, TEST_VECTOR_IV
+        )
+        pair = KeyIvPair(key=TEST_VECTOR_KEY, iv=TEST_VECTOR_IV)
+        matched = summarize_trials(
+            [ciphertext],
+            pair,
+            known=TEST_VECTOR_PLAINTEXT,
+            mode="cbc",
+        )
+        self.assertEqual(matched["claimed_success_count"], 1)
+        self.assertTrue(matched["claimed_success_any"])
+        self.assertFalse(matched["claimed_mqtt_live"])
+
+        ctr = summarize_trials(
+            [ciphertext],
+            pair,
+            known=None,
+            mode="ctr",
+        )
+        self.assertEqual(ctr["pkcs7_unpad_ok_count"], 0)
+        self.assertFalse(ctr["claimed_success_any"])
+        self.assertFalse(ctr["claimed_mqtt_live"])
+
+        live = summarize_trials(
+            [_live_assemblies()[0]],
+            pair,
+            known=TEST_VECTOR_PLAINTEXT,
+            mode="cbc",
+        )
+        self.assertEqual(live["claimed_success_count"], 0)
+        self.assertFalse(live["claimed_success_any"])
+
+        self.assertIsNone(parse_key_iv_line("# comment"))
+        parsed = parse_key_iv_line(f"{TEST_VECTOR_KEY.hex()} {TEST_VECTOR_IV.hex()}")
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertEqual(parsed.key, TEST_VECTOR_KEY)
+
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as handle:
+            handle.write(f"{TEST_VECTOR_KEY.hex()} {TEST_VECTOR_IV.hex()}\n")
+            key_path = Path(handle.name)
+        try:
+            loaded = load_try_key_file(key_path)
+            self.assertEqual(len(loaded), 1)
+            with patch("sys.stdout", new=StringIO()) as stdout:
+                status = crypto_main(
+                    [
+                        "--assemblies-from",
+                        "live_phase3",
+                        "--try-key-file",
+                        str(key_path),
+                        "--known-plaintext-hex",
+                        TEST_VECTOR_PLAINTEXT.hex(),
+                    ]
+                )
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(status, 0)
+            self.assertFalse(payload["trial_claimed_success_any"])
+            self.assertFalse(payload["claimed_mqtt_live"])
+            self.assertEqual(payload["assembly_count"], 17)
+            self.assertEqual(payload["try_key_pair_count"], 1)
+            self.assertNotIn(TEST_VECTOR_KEY.hex(), stdout.getvalue())
+        finally:
+            key_path.unlink()
+
+    def test_cli_requires_dir_or_assemblies_from(self) -> None:
+        with self.assertRaises(SystemExit):
+            crypto_main([])
 
     def test_wrong_key_does_not_claim_success_on_live(self) -> None:
         body = _live_assemblies()[0]

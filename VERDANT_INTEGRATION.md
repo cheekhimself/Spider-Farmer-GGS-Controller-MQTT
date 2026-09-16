@@ -80,6 +80,16 @@ Mapped telemetry:
   - `ggs_ff00_sniffer.py` (`--dump-frames DIR`)
   - `docs/PHASE3_COMPLETE_FRAME_DUMP.md`
   Truncated/oversized buffers are never padded. No decrypt, MQTT, or ESP32 work in this slice.
+- Phase 4 CRC/reassembly and Phase 5 fail-closed AES trials:
+  - `verdant_integration/frame_crc.py`, `reassembly.py`, `crypto_research.py`
+  - `docs/PHASE4_CRC_REASSEMBLY.md`, `docs/PHASE5_CRYPTO_RESEARCH.md`
+  Live decrypt remains BLOCKED without operator key material.
+- Phase 6 operator unlock tooling (no invented keys, no APK downloads):
+  - `docs/PHASE6_UNLOCK_CAPTURE.md`
+  - `verdant_integration/apk_key_candidates.py`
+  - `ggs_ff02_sniff.py` (FF01 listen + optional FF02 indicate / HCI hex-dir)
+  - `python3 -m verdant_integration.crypto_research --try-key-file … --assemblies-from live_phase3`
+  `claimed_success` still requires a known-plaintext match. No MQTT live claim.
 
 ## 7) Security and operations hardening
 - Removed source-level credential placeholders in firmware constants by switching to compile-time config definitions.
@@ -107,6 +117,9 @@ Added tests:
 - `tests/test_frame_codec.py` (AA AA 00 03 length parsing; rejects plaintext/short/garbage)
 - `tests/test_payload_inspect.py` (body split/stats/hypotheses; decrypt stub refuses)
 - `tests/test_frame_dump.py` (COMPLETE dump vs TRUNCATED/wrong-length/plaintext)
+- `tests/test_apk_key_candidates.py` (synthetic AES-sized tokens; no vendor keys)
+- `tests/test_crypto_research.py` (fail-closed trials + `--try-key-file`)
+- `tests/test_ff02_sniff.py` (hex-dir classify + write helper gated)
 
 These cover topic contract mapping, startup validation, and parser resilience.
 

@@ -9,6 +9,7 @@ runtime if an operator has APK-derived material. Default is refuse.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from collections import Counter
@@ -311,6 +312,102 @@ def load_operator_key_iv() -> tuple[bytes | None, bytes | None]:
     return key, iv
 
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+LIVE_PHASE3_DIR = REPO_ROOT / "tests" / "fixtures" / "live_phase3"
+CLAIMED_MQTT_LIVE = False
+
+
+@dataclass(frozen=True)
+class KeyIvPair:
+    key: bytes
+    iv: bytes | None
+
+    def fingerprint(self) -> str:
+        iv_part = "none" if self.iv is None else hashlib.sha256(self.iv).hexdigest()[:8]
+        return f"key{len(self.key)}_{hashlib.sha256(self.key).hexdigest()[:12]}_iv_{iv_part}"
+
+
+def resolve_assemblies_dir(
+    dir_arg: str | None,
+    assemblies_from: str | None,
+) -> Path:
+    """Resolve --dir / --assemblies-from. Token live_phase3 is the fixture dir."""
+    if dir_arg and assemblies_from:
+        raise SystemExit("use only one of --dir or --assemblies-from.")
+    token = assemblies_from or dir_arg
+    if token is None:
+        raise SystemExit("--dir or --assemblies-from is required.")
+    if token == "live_phase3":
+        return LIVE_PHASE3_DIR
+    return Path(token)
+
+
+def parse_key_iv_line(text: str) -> KeyIvPair | None:
+    """Parse one candidate line: key_hex [iv_hex]. Comments and blanks skip."""
+    stripped = text.strip()
+    if not stripped or stripped.startswith("#"):
+        return None
+    parts = stripped.split()
+    if not parts:
+        return None
+    key = parse_optional_hex(parts[0])
+    if key is None:
+        return None
+    iv = parse_optional_hex(parts[1]) if len(parts) > 1 else None
+    if len(key) not in (16, 24, 32):
+        raise SystemExit(DECRYPT_BAD_ARGS)
+    if iv is not None and len(iv) != AES_BLOCK:
+        raise SystemExit(DECRYPT_BAD_ARGS)
+    return KeyIvPair(key=key, iv=iv)
+
+
+def load_try_key_file(path: Path) -> list[KeyIvPair]:
+    """Load operator key/IV pairs. Empty file is valid (zero trials)."""
+    pairs: list[KeyIvPair] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        item = parse_key_iv_line(line)
+        if item is not None:
+            pairs.append(item)
+    return pairs
+
+
+def summarize_trials(
+    assemblies: Sequence[bytes],
+    pair: KeyIvPair,
+    *,
+    known: bytes | None,
+    mode: str,
+) -> dict[str, object]:
+    """Run fail-closed trial_decrypt on every assembly for one key/IV pair."""
+    reasons: Counter[str] = Counter()
+    claimed = 0
+    pkcs7_ok = 0
+    for body in assemblies:
+        trial = trial_decrypt(
+            body,
+            known_good_plaintext=known,
+            key=pair.key,
+            iv=pair.iv,
+            mode=mode,
+        )
+        reasons[trial.reason] += 1
+        if trial.claimed_success:
+            claimed += 1
+        if trial.ok and mode in {"cbc", "ecb"}:
+            pkcs7_ok += 1
+    return {
+        "fingerprint": pair.fingerprint(),
+        "key_len": len(pair.key),
+        "iv_present": pair.iv is not None,
+        "assembly_count": len(assemblies),
+        "claimed_success_count": claimed,
+        "pkcs7_unpad_ok_count": pkcs7_ok,
+        "reason_counts": dict(reasons),
+        "claimed_success_any": claimed > 0,
+        "claimed_mqtt_live": CLAIMED_MQTT_LIVE,
+    }
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -318,7 +415,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             "assemblies (no MQTT, no invented keys)."
         )
     )
-    parser.add_argument("--dir", metavar="DIR", required=True, help="live_phase3 hex directory")
+    parser.add_argument("--dir", metavar="DIR", help="live_phase3 hex directory")
+    parser.add_argument(
+        "--assemblies-from",
+        metavar="DIR_OR_TOKEN",
+        help="Same as --dir. Token 'live_phase3' selects tests/fixtures/live_phase3.",
+    )
+    parser.add_argument(
+        "--try-key-file",
+        metavar="PATH",
+        help="Operator key/IV listing (key_hex [iv_hex] per line). Not committed.",
+    )
     parser.add_argument(
         "--known-plaintext-hex",
         default="",
@@ -331,32 +438,53 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="AES mode for an operator-supplied key trial.",
     )
     args = parser.parse_args(argv)
-    frames = load_hex_dir(Path(args.dir))
+    dump_dir = resolve_assemblies_dir(args.dir, args.assemblies_from)
+    frames = load_hex_dir(dump_dir)
     results = [item for item in reassemble_dump_frames(frames) if item.ok and item.assembled]
     assemblies = [item.assembled for item in results if item.assembled is not None]
     report = analyze_assemblies(assemblies)
     known = parse_optional_hex(args.known_plaintext_hex)
     key, iv = load_operator_key_iv()
+    pairs: list[KeyIvPair] = []
+    if args.try_key_file:
+        pairs.extend(load_try_key_file(Path(args.try_key_file)))
+    if key is not None:
+        pairs.append(KeyIvPair(key=key, iv=iv))
+
     trials: list[dict[str, object]] = []
     claimed_any = False
-    for item in results:
-        assert item.assembled is not None
-        trial = trial_decrypt(
-            item.assembled,
-            known_good_plaintext=known,
-            key=key,
-            iv=iv,
-            mode=args.mode,
+    if not pairs:
+        for item in results:
+            assert item.assembled is not None
+            trial = trial_decrypt(
+                item.assembled,
+                known_good_plaintext=known,
+                key=None,
+                iv=None,
+                mode=args.mode,
+            )
+            row = trial.as_summary()
+            row["message_crc_hex"] = item.message_crc_hex
+            row["total_ciphertext"] = item.total_ciphertext
+            trials.append(row)
+            if trial.claimed_success:
+                claimed_any = True
+        report["trials"] = trials
+        report["operator_key_present"] = False
+    else:
+        pair_rows = [
+            summarize_trials(assemblies, pair, known=known, mode=args.mode) for pair in pairs
+        ]
+        claimed_any = any(bool(row["claimed_success_any"]) for row in pair_rows)
+        report["try_key_pairs"] = pair_rows
+        report["operator_key_present"] = True
+        report["try_key_pair_count"] = len(pairs)
+        report["trial_claimed_success_count"] = sum(
+            int(row["claimed_success_count"]) for row in pair_rows
         )
-        row = trial.as_summary()
-        row["message_crc_hex"] = item.message_crc_hex
-        row["total_ciphertext"] = item.total_ciphertext
-        trials.append(row)
-        if trial.claimed_success:
-            claimed_any = True
-    report["trials"] = trials
+
     report["trial_claimed_success_any"] = claimed_any
-    report["operator_key_present"] = key is not None
+    report["claimed_mqtt_live"] = CLAIMED_MQTT_LIVE
     print(json.dumps(report, separators=(",", ":"), sort_keys=True))
     return 0 if assemblies else 1
 
