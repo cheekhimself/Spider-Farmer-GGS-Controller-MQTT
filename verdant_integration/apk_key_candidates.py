@@ -310,7 +310,11 @@ def ranked_candidates(pool: dict[str, KeyCandidate]) -> list[KeyCandidate]:
 def write_try_key_file(candidates: Sequence[KeyCandidate], path: Path) -> None:
     """Write key/IV pairs for crypto_research --try-key-file (operator local)."""
     keys = [item for item in candidates if item.kind in {"key", "key_or_iv"}]
-    ivs = [item for item in candidates if item.kind == "iv" and item.length == AES_BLOCK]
+    ivs = [
+        item
+        for item in candidates
+        if item.length == AES_BLOCK and item.kind in {"iv", "key_or_iv"}
+    ]
     lines = [
         "# Operator AES candidates. Not proven. Do not commit.",
         "# Format: <key_hex> [iv_hex]",
@@ -318,14 +322,19 @@ def write_try_key_file(candidates: Sequence[KeyCandidate], path: Path) -> None:
     if not keys and ivs:
         lines.append("# iv-only candidates; CBC still needs a key")
         for iv in ivs:
-            lines.append(f"# iv {iv.hex()}")
+            lines.append(f"# iv {iv.hex}")
     elif not ivs:
         for item in keys:
             lines.append(item.hex)
     else:
+        seen: set[str] = set()
         for key in keys:
             for iv in ivs:
-                lines.append(f"{key.hex} {iv.hex}")
+                line = f"{key.hex} {iv.hex}"
+                if line in seen:
+                    continue
+                seen.add(line)
+                lines.append(line)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="ascii")
 

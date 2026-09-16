@@ -15,6 +15,7 @@ from verdant_integration.apk_key_candidates import (
     main as apk_main,
     ranked_candidates,
     refuse_remote_path,
+    write_try_key_file,
 )
 
 
@@ -133,6 +134,35 @@ class ApkZipHarvestTests(unittest.TestCase):
             text = out_keys.read_text(encoding="ascii")
             self.assertIn(SYN_IV_HEX, text)
             self.assertIn("Do not commit", text)
+            self.assertIn(SYN_KEY_ASCII.hex(), text)
+            pair_lines = [line for line in text.splitlines() if not line.startswith("#") and line.strip()]
+            self.assertTrue(any(" " in line for line in pair_lines))
+
+    def test_key_or_iv_is_emitted_as_iv_and_key(self) -> None:
+        blob = (
+            b'SecretKeySpec("' + SYN_KEY_ASCII + b'") IvParameterSpec '
+            + SYN_IV_HEX.encode("ascii")
+        )
+        pool: dict = {}
+        harvest_text(blob, pool)
+        ranked = ranked_candidates(pool)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "candidates.txt"
+            write_try_key_file(ranked, out)
+            text = out.read_text(encoding="ascii")
+        self.assertIn(f"{SYN_KEY_ASCII.hex()} {SYN_IV_HEX}", text)
+
+    def test_iv_only_comments_use_hex_string_not_hex_method(self) -> None:
+        isolated: dict = {}
+        harvest_text(b"IvParameterSpec " + SYN_IV_HEX.encode("ascii"), isolated)
+        ranked = ranked_candidates(isolated)
+        self.assertTrue(ranked)
+        self.assertEqual(ranked[0].kind, "iv")
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "ivs.txt"
+            write_try_key_file(ranked, out)
+            text = out.read_text(encoding="ascii")
+        self.assertIn(f"# iv {SYN_IV_HEX}", text)
 
     def test_harvest_path_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import tempfile
@@ -7,11 +8,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 from verdant_integration.ff_session import (
+    MAC_REDACT,
     WRITE_REFUSED,
     classify_hex_dir,
+    redact_macs,
     write_ff02_allowed,
 )
-from ggs_ff02_sniff import main as sniff_main
+from ggs_ff02_sniff import capture_live, main as sniff_main
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,6 +51,18 @@ class HexDirClassifyTests(unittest.TestCase):
         self.assertIsNone(row["crc_ok"])
         self.assertEqual(report["crc_pass"], 0)
 
+    def test_mac_like_filename_is_redacted(self) -> None:
+        sample = next(LIVE_DIR.glob("*_422b_*.hex"))
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / "ff02_AA-BB-CC-DD-EE-FF.hex"
+            dest.write_text(sample.read_text(encoding="ascii"), encoding="ascii")
+            report = classify_hex_dir(Path(tmp), dump_frames=None)
+        row = report["results"][0]
+        self.assertEqual(row["path"], f"ff02_{MAC_REDACT}.hex")
+        self.assertNotIn("AA-BB-CC-DD-EE-FF", json.dumps(report))
+        self.assertEqual(row["channel_hint"], "ff02")
+        self.assertEqual(redact_macs("ff01_aa:bb:cc:dd:ee:ff.hex"), f"ff01_{MAC_REDACT}.hex")
+
     def test_cli_from_hex_dir(self) -> None:
         sample = next(LIVE_DIR.glob("*_230b_*.hex"))
         with tempfile.TemporaryDirectory() as tmp:
@@ -73,6 +88,38 @@ class WriteGateTests(unittest.TestCase):
 
     def test_empty_write_hex_is_not_a_write(self) -> None:
         self.assertFalse(write_ff02_allowed(write_hex="", understand_flag=False))
+
+    def test_capture_live_refuses_write_without_gates(self) -> None:
+        with patch.dict(os.environ, {"SF_GGS_I_UNDERSTAND_FF02_WRITE": ""}, clear=False):
+            with self.assertRaises(SystemExit) as raised:
+                asyncio.run(
+                    capture_live(
+                        1,
+                        1.0,
+                        1.0,
+                        None,
+                        ff02_notify=False,
+                        write_hex="00",
+                        understand_flag=False,
+                    )
+                )
+        self.assertEqual(str(raised.exception), WRITE_REFUSED)
+
+    def test_capture_live_refuses_write_when_only_flag_set(self) -> None:
+        with patch.dict(os.environ, {"SF_GGS_I_UNDERSTAND_FF02_WRITE": ""}, clear=False):
+            with self.assertRaises(SystemExit) as raised:
+                asyncio.run(
+                    capture_live(
+                        1,
+                        1.0,
+                        1.0,
+                        None,
+                        ff02_notify=False,
+                        write_hex="00",
+                        understand_flag=True,
+                    )
+                )
+        self.assertEqual(str(raised.exception), WRITE_REFUSED)
 
 
 class SourcePolicyTests(unittest.TestCase):

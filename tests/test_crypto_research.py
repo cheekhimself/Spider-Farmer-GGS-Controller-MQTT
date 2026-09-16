@@ -180,6 +180,16 @@ class FailClosedTrialTests(unittest.TestCase):
         self.assertTrue(matched["claimed_success_any"])
         self.assertFalse(matched["claimed_mqtt_live"])
 
+        ctr = summarize_trials(
+            [ciphertext],
+            pair,
+            known=None,
+            mode="ctr",
+        )
+        self.assertEqual(ctr["pkcs7_unpad_ok_count"], 0)
+        self.assertFalse(ctr["claimed_success_any"])
+        self.assertFalse(ctr["claimed_mqtt_live"])
+
         live = summarize_trials(
             [_live_assemblies()[0]],
             pair,

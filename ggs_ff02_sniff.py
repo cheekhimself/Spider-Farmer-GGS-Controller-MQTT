@@ -92,8 +92,13 @@ async def capture_live(
     dump_frames: str | None,
     *,
     ff02_notify: bool,
-    write_hex: str,
+    write_hex: str = "",
+    understand_flag: bool = False,
 ) -> int:
+    # Fail-closed: programmatic callers cannot skip the double-gate.
+    if write_hex:
+        write_ff02_allowed(write_hex=write_hex, understand_flag=understand_flag)
+
     try:
         from bleak import BleakClient, BleakScanner
     except ImportError:
@@ -169,6 +174,7 @@ async def capture_live(
                     "use Android HCI snoop for official-app writes."
                 )
         if write_hex:
+            write_ff02_allowed(write_hex=write_hex, understand_flag=understand_flag)
             payload = load_hex(write_hex)
             print(
                 f"[DANGER] Writing {len(payload)} bytes to FF02 (opt-in). "
@@ -222,6 +228,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.dump_frames,
             ff02_notify=not args.no_ff02_notify,
             write_hex=write_hex,
+            understand_flag=args.i_understand_this_writes_ff02,
         )
     )
 

@@ -393,7 +393,7 @@ def summarize_trials(
         reasons[trial.reason] += 1
         if trial.claimed_success:
             claimed += 1
-        if trial.ok:
+        if trial.ok and mode in {"cbc", "ecb"}:
             pkcs7_ok += 1
     return {
         "fingerprint": pair.fingerprint(),
