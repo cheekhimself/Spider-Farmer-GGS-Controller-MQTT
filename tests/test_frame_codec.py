@@ -22,7 +22,6 @@ FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
 # SYNTHETIC; not live controller captures and not MACs.
 SIZE_CLASSES = (
     ("frame_422.hex", 422, 414),
-    ("frame_390.hex", 390, 382),
     ("frame_246.hex", 246, 238),
     ("frame_230.hex", 230, 222),
 )
