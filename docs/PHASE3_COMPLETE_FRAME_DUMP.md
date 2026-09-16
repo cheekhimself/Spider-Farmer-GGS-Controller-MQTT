@@ -54,7 +54,7 @@ Offline classify of one hex blob (no BLE):
 python3 -m verdant_integration.frame_dump --hex-file tests\fixtures\frame_422.hex --dump-frames dumps\check
 ```
 
-`--hex` / `--hex-file` / stdin is the buffer. Exit `0` only when completeness is `COMPLETE`. The committed size-class fixtures can be `COMPLETE` by **length** while still being zero-padded research files — live dumps from this sniffer are what Phase 4 needs.
+`--hex` / `--hex-file` / stdin is the buffer. Exit `0` only when completeness is `COMPLETE`. The committed size-class fixtures can be `COMPLETE` by **length** while still being zero-padded research files. Live COMPLETE dumps used for Phase 4 CRC/reassembly are in `tests/fixtures/live_phase3/` (`docs/PHASE4_CRC_REASSEMBLY.md`).
 
 ## Non-goals
 

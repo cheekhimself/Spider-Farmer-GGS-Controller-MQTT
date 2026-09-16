@@ -12,9 +12,9 @@ the declared length was 414, 382, 238, and 222 respectively, which matches:
 
     total_size = declared_length + 8
 
-The extra two bytes after the 6-byte header are left inside ``payload`` and
-are not named (CRC/auth remains unproven). Trailing byte families are not
-parsed. Inner-header guesses live in ``payload_inspect`` (hypothesis only).
+The extra two bytes in the ``+8`` envelope are the trailing CRC (Phase 4:
+CRC-16/MODBUS over ``frame[:-2]`` on live COMPLETE dumps). Inner-header
+fields after offset 5 live in ``payload_inspect`` / ``reassembly``.
 """
 
 from __future__ import annotations
