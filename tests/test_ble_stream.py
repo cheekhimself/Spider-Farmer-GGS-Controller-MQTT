@@ -107,11 +107,10 @@ class ReceiveOnlySnifferTests(unittest.TestCase):
         self.assertNotIn("write_gatt", source)
         self.assertNotIn("read_gatt", source)
         self.assertNotIn(".address", source)
-        self.assertNotIn("open(", source)
-        self.assertNotIn("write_text", source)
-        self.assertNotIn("write_bytes", source)
         self.assertNotIn("mqtt", source)
         self.assertNotIn("http", source)
+        self.assertIn("--dump-frames", source)
+        self.assertIn("completeness", source)
 
     def test_implementation_has_no_decryption_guess_or_lossy_decode(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -132,8 +131,11 @@ class ReceiveOnlySnifferTests(unittest.TestCase):
         source = (root / "ggs_ff00_sniffer.py").read_text(encoding="utf-8")
         self.assertIn("FrameCodec", source)
         self.assertIn("FRAMED_CANDIDATE", source)
+        self.assertIn("COMPLETE", source)
+        self.assertIn("TRUNCATED", source)
         self.assertNotIn("decrypt", source.lower())
         self.assertNotIn("payload=", source)
+        self.assertNotIn("0000ff02", source.lower())
 
 
 if __name__ == "__main__":

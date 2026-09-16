@@ -109,10 +109,11 @@ accept key bytes.
 - No merge of PR #4
 - No AES keys in git
 
-## 7. Next gate (Phase 3 MQTT only if decode succeeds)
+## 7. Next gate (capture, then CRC — not MQTT)
 
-Capture **unpadded** full FF01 frames for 422/390/230 (redact MACs). Prove
-trailer CRC on live bytes. Reassemble chunks until `offset+chunk == total`.
+Phase 3 is **receive-only COMPLETE frame dumps** (`docs/PHASE3_COMPLETE_FRAME_DUMP.md`),
+not MQTT. Capture **unpadded** full FF01 frames for 422/390/230 (redact MACs).
+Prove trailer CRC on live bytes. Reassemble chunks until `offset+chunk == total`.
 Only then introduce a decrypt path gated on a known-good plaintext fixture.
 MQTT / Verdant live mapping stays blocked until that plaintext is `getDevSta`
 with finite `temp/humi/vpd`.

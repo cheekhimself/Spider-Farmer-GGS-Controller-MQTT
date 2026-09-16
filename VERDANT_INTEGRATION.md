@@ -75,6 +75,11 @@ Mapped telemetry:
   - `verdant_integration/payload_inspect.py`
   - `docs/PHASE2_FRAMED_PAYLOAD_INSPECT.md`
   AES-CBC remains an unverified research note; the stub never claims decrypt success.
+- Phase 3 complete-frame dump (FF01 receive-only; write full hex only when observed length matches declared size) lives in:
+  - `verdant_integration/frame_dump.py`
+  - `ggs_ff00_sniffer.py` (`--dump-frames DIR`)
+  - `docs/PHASE3_COMPLETE_FRAME_DUMP.md`
+  Truncated/oversized buffers are never padded. No decrypt, MQTT, or ESP32 work in this slice.
 
 ## 7) Security and operations hardening
 - Removed source-level credential placeholders in firmware constants by switching to compile-time config definitions.
@@ -101,6 +106,7 @@ Added tests:
 - `/tmp/workspace/cheekhimself/Spider-Farmer-GGS-Controller-MQTT/tests/test_ble_stream.py`
 - `tests/test_frame_codec.py` (AA AA 00 03 length parsing; rejects plaintext/short/garbage)
 - `tests/test_payload_inspect.py` (body split/stats/hypotheses; decrypt stub refuses)
+- `tests/test_frame_dump.py` (COMPLETE dump vs TRUNCATED/wrong-length/plaintext)
 
 These cover topic contract mapping, startup validation, and parser resilience.
 
