@@ -16,6 +16,7 @@ from verdant_integration.ble_stream import (
     FragmentedJsonStreamParser,
     extract_safe_get_dev_status,
 )
+from verdant_integration.frame_codec import FrameCodec
 
 DEVICE_NAME = "SF-GGS-CB"
 FF01_NOTIFY_UUID = "0000ff01-0000-1000-8000-00805f9b34fb"
@@ -67,6 +68,18 @@ async def capture(scan_attempts: int, scan_seconds: float, listen_seconds: float
         def handle_notification(_: object, data: bytearray) -> None:
             nonlocal notification_count, telemetry_count
             notification_count += 1
+            framed = FrameCodec.parse(data)
+            if FrameCodec.looks_framed(data):
+                summary = framed.as_summary()
+                classification = (
+                    "FRAMED_CANDIDATE" if framed.ok else f"FRAMED_{framed.error}"
+                )
+                print(
+                    f"[FF01] notification={notification_count} bytes={len(data)} "
+                    f"classification={classification} length={summary['length']} "
+                    f"header={summary['header']}"
+                )
+                return
             messages = parser.feed(data)
             if not messages:
                 print(
