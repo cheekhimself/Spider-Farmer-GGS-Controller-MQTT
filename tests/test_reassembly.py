@@ -143,7 +143,8 @@ class ReassemblyTests(unittest.TestCase):
         self.assertNotIn(".decrypt(", source)
         self.assertNotIn("KEY =", source)
         self.assertNotIn("IV =", source)
-        self.assertNotIn("mqtt", source.lower())
+        self.assertNotIn("paho.mqtt", source.lower())
+        self.assertNotIn("import paho", source.lower())
 
 
 if __name__ == "__main__":

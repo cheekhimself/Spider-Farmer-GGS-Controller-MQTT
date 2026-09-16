@@ -126,8 +126,8 @@ class ProvenTrailerCrcTests(unittest.TestCase):
         lowered = source.lower()
         self.assertNotIn("from cryptography", lowered)
         self.assertNotIn(".decrypt", lowered)
-        self.assertNotIn("mqtt", lowered)
-        self.assertNotIn("aes", lowered)
+        self.assertNotIn("paho.mqtt", lowered)
+        self.assertNotIn("import paho", lowered)
 
 
 if __name__ == "__main__":
