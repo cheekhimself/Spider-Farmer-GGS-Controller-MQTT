@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.GgsMonitor" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="android:statusBarColor">#1B5E20</item>
+        <item name="colorPrimary">#2E7D32</item>
+        <item name="colorPrimaryDark">#1B5E20</item>
+        <item name="colorAccent">#558B2F</item>
+    </style>
+</resources>

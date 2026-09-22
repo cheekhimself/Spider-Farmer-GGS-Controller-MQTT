@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GGS Monitor</string>
+    <string name="decode_lock">Live sensor decoding is unavailable until vendor key material is proven. This app never decrypts FF01 bodies, never maps temperature/humidity/VPD, and never writes FF02.</string>
+    <string name="scan">Scan SF-GGS-CB</string>
+    <string name="disconnect">Disconnect</string>
+    <string name="clear">Clear log</string>
+    <string name="export">Export log</string>
+    <string name="grant_permissions">Grant BLE permissions</string>
+</resources>
