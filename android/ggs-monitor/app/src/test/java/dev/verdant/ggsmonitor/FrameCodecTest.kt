@@ -154,7 +154,8 @@ class CaptureStoreTest {
         assertTrue(store.completeSnapshot().single().crcOk == true)
         assertFalse(export.contains("humidity"))
         assertFalse(export.contains("VPD"))
-        assertFalse(export.contains("decrypt"))
+        assertFalse(export.contains("claimed_decrypt"))
+        assertTrue(export.contains("No decrypted values"))
     }
 
     @Test
