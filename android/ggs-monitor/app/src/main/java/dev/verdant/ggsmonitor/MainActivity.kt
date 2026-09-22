@@ -111,6 +111,9 @@ class MainActivity : AppCompatActivity(), GgsBleClient.Listener {
             "device_name_filter" to GgsBleClient.DEVICE_NAME,
             "connection" to ble.connectionState,
             "bluetooth" to ble.bluetoothState(),
+            "versionName" to versionName(),
+            "negotiated_mtu" to (ble.negotiatedMtu?.toString() ?: "unknown"),
+            "mtu" to ble.mtuLine(),
             "decode" to "locked_unproven_vendor_key",
         )
         val body = capture.exportText(meta)
@@ -147,6 +150,12 @@ class MainActivity : AppCompatActivity(), GgsBleClient.Listener {
         runOnUiThread { renderStatus() }
     }
 
+    override fun onMtu(mtu: Int, gattStatus: Int) {
+        runOnUiThread {
+            renderStatus(extra = "ATT MTU negotiated=$mtu gatt_status=$gattStatus")
+        }
+    }
+
     override fun onFf01(bytes: ByteArray) {
         runOnUiThread {
             capture.add(bytes, System.currentTimeMillis())
@@ -176,9 +185,11 @@ class MainActivity : AppCompatActivity(), GgsBleClient.Listener {
             "android_sdk: ${Build.VERSION.SDK_INT}  adapter_on=${BluetoothAdapter.getDefaultAdapter()?.isEnabled ?: false}",
             "device: $deviceState (filter=${GgsBleClient.DEVICE_NAME})",
             "connection: ${ble.connectionState}",
+            "mtu: ${ble.mtuLine()}",
             "packets: ${capture.packetCount}  bytes: ${capture.byteCount}  last: $lastTs",
+            capture.completeSummary(),
             "retained_frames: ${capture.snapshot().size}/${CaptureStore.MAX_FRAMES}",
-            "write_policy: never writeCharacteristic; FF02 unused; CCCD subscribe only",
+            "app: ${versionName()}  write_policy: never writeCharacteristic; FF02 unused; CCCD subscribe only",
             "decode: LOCKED — no plaintext sensors until proven key material",
             extra?.let { "note: $it" },
             lastError?.let { "error: $it" },
@@ -190,5 +201,13 @@ class MainActivity : AppCompatActivity(), GgsBleClient.Listener {
         val fmt = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US)
         fmt.timeZone = TimeZone.getTimeZone("UTC")
         return fmt.format(Date())
+    }
+
+    private fun versionName(): String {
+        return try {
+            packageManager.getPackageInfo(packageName, 0).versionName ?: "unknown"
+        } catch (_: Exception) {
+            "unknown"
+        }
     }
 }

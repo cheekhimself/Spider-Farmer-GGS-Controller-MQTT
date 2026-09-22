@@ -11,12 +11,14 @@ It does **not** decrypt telemetry, does **not** write FF02, and has **no cloud/a
 | UI | Kotlin + AppCompat XML views (no Compose) |
 | Package | `dev.verdant.ggsmonitor` |
 | Display name | GGS Monitor |
+| versionName | `0.2.0-mtu-reassembly` (debug APK; bump so phone installs are distinguishable) |
 | minSdk / targetSdk / compileSdk | 24 / 34 / 34 |
-| BLE | Scan **exact** name `SF-GGS-CB`; connect; subscribe to `0000ff01-…` |
+| BLE | Scan **exact** name `SF-GGS-CB`; connect; discover services; **request ATT MTU 517**; subscribe to `0000ff01-…` |
 | Writes | **No** `writeCharacteristic`. CCCD (`0x2902`) descriptor write only, to enable FF01 notify |
 | Frames | Port of Phase 1 `FrameCodec`: magic `AA AA 00 03`, BE declared length, `total = declared + 8` |
+| Reassembly | Concatenate non-magic ATT fragments until `declared+8`; CRC-16/MODBUS BE over `frame[:-2]` (Phase 4) required before counting COMPLETE |
 | Decode | Fail-closed banner: live sensors unavailable until vendor key material is proven |
-| Export | Local share/save via Android chooser (`ACTION_SEND` + FileProvider). Captures stay on device |
+| Export | Local share/save. RAW notifies **and** a COMPLETE reassembled section (or honest `none`) plus negotiated MTU |
 | Secrets | `*.apk` already gitignored; captures written to app cache only |
 
 Proven facts reused (do not re-litigate): Cheek 2026-09-16 FF01 framed candidates; UUIDs from repo README / `ggs_ff00_sniffer.py`. Hardware connectivity is **not** claimed unless a phone + controller were used.
@@ -61,7 +63,9 @@ Unit tests (pure classifier, no device):
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-On the phone: grant BLE (and on Android 11 and older, location) permissions, turn Bluetooth on, tap **Scan SF-GGS-CB**. You should see packet counts, timestamps, classification (`complete` / `truncated` / `not_framed` / …), declared vs observed length, and a bounded hex list. **Export log** opens the system share sheet.
+On the phone: grant BLE (and on Android 11 and older, location) permissions, turn Bluetooth on, tap **Scan SF-GGS-CB**. After connect the app requests **ATT MTU 517** and shows `mtu: negotiated=…` in the status line (23 means the stack stayed on the default 20-byte payload). You should see packet counts, COMPLETE reassembled count/sizes when CRC-checked frames exist, timestamps, classification (`complete` / `truncated` / …), declared vs observed length, and a bounded hex list. **Export log** includes negotiated MTU, a COMPLETE section (or `COMPLETE: none`), and raw notifies.
+
+If notifies stay 20 bytes after a negotiated MTU of 517, export still records that MTU plus raw headers — that diagnoses a device-side path, not a missing phone MTU request.
 
 ## What this APK will not do
 

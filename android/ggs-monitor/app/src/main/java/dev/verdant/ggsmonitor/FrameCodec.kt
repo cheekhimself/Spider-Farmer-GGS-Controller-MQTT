@@ -38,7 +38,10 @@ object FrameCodec {
     const val ERROR_INVALID_LENGTH: String = "invalid_length"
     const val ERROR_TRUNCATED: String = "truncated"
     const val CLASS_COMPLETE: String = "complete"
+    const val CLASS_CRC_MISMATCH: String = "crc_mismatch"
     const val CLASS_UNKNOWN: String = "unknown"
+
+    fun expectedTotal(declared: Int): Int = declared + LENGTH_ENVELOPE
 
     fun looksFramed(data: ByteArray): Boolean {
         if (data.size < MAGIC.size) return false
