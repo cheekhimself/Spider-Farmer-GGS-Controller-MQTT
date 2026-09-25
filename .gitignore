@@ -13,3 +13,11 @@ dumps/
 candidates.txt
 *_candidates.txt
 operator_keys/
+
+# Android local SDK / build (GGS Monitor). Captures and APKs stay out of git.
+android/**/local.properties
+android/**/.gradle/
+android/**/build/
+android/**/.idea/
+android/**/*.iml
+android/**/captures/
